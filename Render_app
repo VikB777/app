@@ -1,0 +1,75 @@
+import torch
+from flask import Flask, request, render_template_string, jsonify
+from transformers import pipeline
+
+app = Flask(__name__)
+
+# Set device based on availability of GPU or CPU
+device = 0 if torch.cuda.is_available() else -1
+generator = pipeline("text-generation", model="EleutherAI/gpt-neo-2.7B", device=device)
+
+# HTML content embedded directly in the code
+html_content = """
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>GPT-Neo Text Generation</title>
+</head>
+<body>
+    <h2>GPT-Neo Text Generator</h2>
+    <form id="promptForm">
+        <label for="prompt">Enter your prompt:</label><br><br>
+        <input type="text" id="prompt" name="prompt" placeholder="Type your question here" required><br><br>
+        <button type="submit">Generate</button>
+    </form>
+    <h3>Generated Response:</h3>
+    <p id="responseText"></p>
+
+    <script>
+        document.getElementById('promptForm').addEventListener('submit', async function(event) {
+            event.preventDefault();
+            const prompt = document.getElementById('prompt').value;
+
+            try {
+                const response = await fetch('/generate', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/x-www-form-urlencoded'
+                    },
+                    body: new URLSearchParams({ 'prompt': prompt })
+                });
+
+                if (!response.ok) {
+                    throw new Error('Network response was not ok');
+                }
+
+                const result = await response.json();
+                document.getElementById('responseText').innerText = result.generated_text;
+            } catch (error) {
+                document.getElementById('responseText').innerText = 'Error: ' + error.message;
+                console.error('Error fetching response:', error);
+            }
+        });
+    </script>
+</body>
+</html>
+"""
+
+@app.route('/')
+def index():
+    return render_template_string(html_content)
+
+@app.route('/generate', methods=['POST'])
+def generate():
+    try:
+        prompt = request.form['prompt']
+        response = generator(prompt, max_length=100, do_sample=True, truncation=True)
+        generated_text = response[0]["generated_text"]
+        return jsonify({"generated_text": generated_text})
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=5000)
